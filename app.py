@@ -184,7 +184,8 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
         else:
             print("--- ROUND 2: Updating existing repo ---")
-            subprocess.run(f"gh repo clone {repo_url} {local_path}", shell=True, check=True)
+            subprocess.run(f"git clone {repo_url} {local_path}", shell=True, check=True)
+
         
             # 🔐 Re-add authenticated remote (fixes push error)
             GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
