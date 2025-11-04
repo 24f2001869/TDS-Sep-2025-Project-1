@@ -201,11 +201,16 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
             updated = generate_llm_code(task_data.get("brief"), existing_code=old_code)
             with open(os.path.join(local_path, "index.html"), "w", encoding="utf-8") as f:
                 f.write(updated)
+        
             commands = [
                 "git add .",
-                f'git commit -m \"feat: Round {task_data.get(\"round\")} update\"'",
+                f'git commit -m "feat: Round {task_data.get("round")} update"',
                 "git push"
             ]
+
+    for cmd in commands:
+        subprocess.run(cmd, shell=True, check=True, cwd=local_path)
+
 
 
         for cmd in commands:
