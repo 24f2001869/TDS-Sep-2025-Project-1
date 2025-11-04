@@ -8,15 +8,18 @@ import shutil
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import google.generativeai as genai
+from pathlib import Path
 
 # --- CONFIGURATION ---
-from pathlib import Path
-from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
-
 app = Flask(__name__)
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Gemini setup
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
 
 # --- HELPER FUNCTIONS ---
 
@@ -75,16 +78,18 @@ This project uses the MIT License. See LICENSE for details.
 
 def notify_evaluation_server(payload):
     """Notify evaluator with proxy-safe retry mechanism."""
-    url = payload.pop("evaluation_url")
-    print(f"📣 Notifying evaluation server at {url}...")
+    url = payload.pop("evaluation_url", None)
+    if not url:
+        print("⚠️ No evaluation URL provided.")
+        return False
 
-    # Fallback proxy to bypass PythonAnywhere restrictions
+    print(f"📣 Notifying evaluation server at {url}...")
     proxies = {
         "https": os.getenv("HTTPS_PROXY", "https://proxy.scrapeops.io:443")
     }
 
     delays = [1, 2, 4, 8]
-    for i, delay in enumerate(delays):
+    for delay in delays:
         try:
             response = requests.post(url, json=payload, timeout=20, proxies=proxies)
             if response.status_code == 200:
@@ -101,7 +106,11 @@ def notify_evaluation_server(payload):
 
 def write_attachment(local_path, attachment):
     """Handle both text and binary attachments safely."""
-    file_content = base64.b64decode(attachment['url'].split(',')[1])
+    try:
+        file_content = base64.b64decode(attachment['url'].split(',')[1])
+    except Exception:
+        print(f"⚠️ Skipping invalid attachment: {attachment.get('name')}")
+        return
     fname = attachment['name']
     mode = "wb" if fname.endswith((".xlsx", ".xls", ".png", ".jpg", ".zip")) else "w"
     with open(os.path.join(local_path, fname), mode) as f:
@@ -131,6 +140,7 @@ def background_task(task_data):
             shutil.rmtree(local_path)
         os.makedirs(local_path)
 
+        # ROUND 1: Create new repo
         if task_data.get("round") == 1:
             print("--- ROUND 1: Creating new repo ---")
             html_code = generate_llm_code(task_data.get("brief"))
@@ -170,16 +180,16 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
                 "git config --global init.defaultBranch main",
                 "git init",
                 "git add .",
-                'git commit -m "feat: Initial commit for Round 1"',
+                'git commit -m \"feat: Initial commit for Round 1\"',
                 f"gh repo create {repo_name} --public",
                 f"git remote add origin https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git",
                 "git push -u origin main",
-                f'curl -L -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer {GITHUB_TOKEN}" '
-                f'-H "X-GitHub-Api-Version: 2022-11-28" '
+                f'curl -L -X POST -H \"Accept: application/vnd.github+json\" '
+                f'-H \"Authorization: Bearer {GITHUB_TOKEN}\" '
+                f'-H \"X-GitHub-Api-Version: 2022-11-28\" '
                 f'https://api.github.com/repos/{GITHUB_USERNAME}/{repo_name}/pages '
                 "-d '{\"source\":{\"branch\":\"main\",\"path\":\"/\"}}'"
             ]
-
         else:
             print("--- ROUND 2: Updating existing repo ---")
             subprocess.run(f"gh repo clone {repo_url} {local_path}", shell=True, check=True)
@@ -190,7 +200,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
                 f.write(updated)
             commands = [
                 "git add .",
-                f'git commit -m "feat: Round {task_data.get("round")} update"',
+                f'git commit -m \"feat: Round {task_data.get("round")} update\"',
                 "git push"
             ]
 
@@ -222,8 +232,19 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
         print(f"❌ Background error: {e}")
 
 
-@app.route('/api-endpoint', methods=['POST'])
+# --- FLASK ROUTES ---
+
+@app.route('/')
+def home():
+    return jsonify({"status": "ok", "message": "TDS Auto-Deployer running"}), 200
+
+
+@app.route('/api-endpoint', methods=['GET', 'POST', 'HEAD'])
 def handle_request():
+    # Allow GET/HEAD for uptime monitoring
+    if request.method in ['GET', 'HEAD']:
+        return jsonify({"status": "alive"}), 200
+
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
     data = request.json
@@ -232,5 +253,15 @@ def handle_request():
     return jsonify({"usercode": data.get("email")}), 200
 
 
+@app.route('/status')
+def status():
+    return jsonify({
+        "service": "TDS Auto-Deployer",
+        "status": "running",
+        "uptime_check": True
+    }), 200
+
+
+# --- MAIN EXECUTION ---
 if __name__ == "__main__":
-    app.run(port=8080, debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
