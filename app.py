@@ -7,19 +7,14 @@ import requests
 import shutil
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
-import google.generativeai as genai
 from pathlib import Path
+import google.generativeai as genai
 
 # --- CONFIGURATION ---
 load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 app = Flask(__name__)
-
-# Gemini setup
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # --- HELPER FUNCTIONS ---
 
@@ -78,27 +73,20 @@ This project uses the MIT License. See LICENSE for details.
 
 def notify_evaluation_server(payload):
     """Notify evaluator with proxy-safe retry mechanism."""
-    url = payload.pop("evaluation_url", None)
-    if not url:
-        print("⚠️ No evaluation URL provided.")
-        return False
-
+    url = payload.pop("evaluation_url")
     print(f"📣 Notifying evaluation server at {url}...")
-    proxies = {
-        "https": os.getenv("HTTPS_PROXY", "https://proxy.scrapeops.io:443")
-    }
 
     delays = [1, 2, 4, 8]
-    for delay in delays:
+    for i, delay in enumerate(delays):
         try:
-            response = requests.post(url, json=payload, timeout=20, proxies=proxies)
+            response = requests.post(url, json=payload, timeout=20)
             if response.status_code == 200:
                 print("✅ Notification successful!")
                 return True
             else:
                 print(f"⚠️ Notification failed: {response.status_code} {response.text}")
         except requests.RequestException as e:
-            print(f"🚨 Proxy or network issue: {e}")
+            print(f"🚨 Network issue: {e}")
         time.sleep(delay)
     print("❌ All notification attempts failed.")
     return False
@@ -106,11 +94,7 @@ def notify_evaluation_server(payload):
 
 def write_attachment(local_path, attachment):
     """Handle both text and binary attachments safely."""
-    try:
-        file_content = base64.b64decode(attachment['url'].split(',')[1])
-    except Exception:
-        print(f"⚠️ Skipping invalid attachment: {attachment.get('name')}")
-        return
+    file_content = base64.b64decode(attachment['url'].split(',')[1])
     fname = attachment['name']
     mode = "wb" if fname.endswith((".xlsx", ".xls", ".png", ".jpg", ".zip")) else "w"
     with open(os.path.join(local_path, fname), mode) as f:
@@ -140,7 +124,6 @@ def background_task(task_data):
             shutil.rmtree(local_path)
         os.makedirs(local_path)
 
-        # ROUND 1: Create new repo
         if task_data.get("round") == 1:
             print("--- ROUND 1: Creating new repo ---")
             html_code = generate_llm_code(task_data.get("brief"))
@@ -174,28 +157,34 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
             for attachment in task_data.get("attachments", []):
                 write_attachment(local_path, attachment)
 
+            # --- Use GitHub REST API (no gh CLI) ---
+            create_repo_cmd = (
+                f'curl -L -X POST -H "Accept: application/vnd.github+json" '
+                f'-H "Authorization: Bearer {GITHUB_TOKEN}" '
+                f'-H "X-GitHub-Api-Version: 2022-11-28" '
+                f'https://api.github.com/user/repos -d \'{{"name":"{repo_name}","private":false}}\''
+            )
+
             commands = [
-            'git config --global user.name "24f2001869"',
-            'git config --global user.email "24f2001869@ds.study.iitm.ac.in"',
-            "git config --global init.defaultBranch main",
-            "git init",
-            "git add .",
-            'git commit -m "feat: Initial commit for Round 1"',
-            f'curl -L -X POST -H "Accept: application/vnd.github+json" '
-            f'-H "Authorization: Bearer {GITHUB_TOKEN}" '
-            f'-H "X-GitHub-Api-Version: 2022-11-28" '
-            f'https://api.github.com/user/repos -d \'{{"name":"{repo_name}","private":false}}\'',
-            f"git remote add origin https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git",
-            "git push -u origin main",
-            f'curl -L -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer {GITHUB_TOKEN}" '
-            f'-H "X-GitHub-Api-Version: 2022-11-28" '
-            f'https://api.github.com/repos/{GITHUB_USERNAME}/{repo_name}/pages '
-            "-d '{\"source\":{\"branch\":\"main\",\"path\":\"/\"}}'"
+                'git config --global user.name "24f2001869"',
+                'git config --global user.email "24f2001869@ds.study.iitm.ac.in"',
+                "git config --global init.defaultBranch main",
+                "git init",
+                "git add .",
+                'git commit -m \"feat: Initial commit for Round 1\"',
+                create_repo_cmd,
+                f"git remote add origin https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git",
+                "git push -u origin main",
+                f'curl -L -X POST -H "Accept: application/vnd.github+json" '
+                f'-H "Authorization: Bearer {GITHUB_TOKEN}" '
+                f'-H "X-GitHub-Api-Version: 2022-11-28" '
+                f'https://api.github.com/repos/{GITHUB_USERNAME}/{repo_name}/pages '
+                "-d '{\"source\":{\"branch\":\"main\",\"path\":\"/\"}}'"
             ]
 
         else:
             print("--- ROUND 2: Updating existing repo ---")
-            subprocess.run(f"gh repo clone {repo_url} {local_path}", shell=True, check=True)
+            subprocess.run(f"git clone {repo_url} {local_path}", shell=True, check=True)
             with open(os.path.join(local_path, "index.html"), "r", encoding="utf-8") as f:
                 old_code = f.read()
             updated = generate_llm_code(task_data.get("brief"), existing_code=old_code)
@@ -235,15 +224,19 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
         print(f"❌ Background error: {e}")
 
 
-# --- FLASK ROUTES ---
+# --- ROUTES ---
 
-@app.route('/')
+@app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "ok", "message": "TDS Auto-Deployer running"}), 200
 
 
-@app.route('/api-endpoint', methods=['GET', 'POST', 'HEAD'])
+@app.route("/api-endpoint", methods=["GET", "HEAD"])
+def api_alive():
+    return jsonify({"status": "alive"}), 200
 
+
+@app.route("/api-endpoint", methods=["POST"])
 def handle_request():
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
@@ -251,7 +244,7 @@ def handle_request():
     data = request.json
     secret = data.get("secret")
 
-    # ✅ Security check: validate secret
+    # ✅ Security check
     if secret != os.getenv("MY_SECRET"):
         print("❌ Invalid secret provided.")
         return jsonify({"error": "Invalid secret"}), 403
@@ -261,15 +254,5 @@ def handle_request():
     return jsonify({"usercode": data.get("email")}), 200
 
 
-@app.route('/status')
-def status():
-    return jsonify({
-        "service": "TDS Auto-Deployer",
-        "status": "running",
-        "uptime_check": True
-    }), 200
-
-
-# --- MAIN EXECUTION ---
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    app.run(host="0.0.0.0", port=10000)
