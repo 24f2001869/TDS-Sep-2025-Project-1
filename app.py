@@ -208,8 +208,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
                 "git push"
             ]
 
-    for cmd in commands:
-        subprocess.run(cmd, shell=True, check=True, cwd=local_path)
+    
 
 
 
