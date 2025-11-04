@@ -175,21 +175,24 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
                 write_attachment(local_path, attachment)
 
             commands = [
-                'git config --global user.name "24f2001869"',
-                'git config --global user.email "24f2001869@ds.study.iitm.ac.in"',
-                "git config --global init.defaultBranch main",
-                "git init",
-                "git add .",
-                'git commit -m \"feat: Initial commit for Round 1\"',
-                f"gh repo create {repo_name} --public",
-                f"git remote add origin https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git",
-                "git push -u origin main",
-                f'curl -L -X POST -H \"Accept: application/vnd.github+json\" '
-                f'-H \"Authorization: Bearer {GITHUB_TOKEN}\" '
-                f'-H \"X-GitHub-Api-Version: 2022-11-28\" '
-                f'https://api.github.com/repos/{GITHUB_USERNAME}/{repo_name}/pages '
-                "-d '{\"source\":{\"branch\":\"main\",\"path\":\"/\"}}'"
+            'git config --global user.name "24f2001869"',
+            'git config --global user.email "24f2001869@ds.study.iitm.ac.in"',
+            "git config --global init.defaultBranch main",
+            "git init",
+            "git add .",
+            'git commit -m "feat: Initial commit for Round 1"',
+            f'curl -L -X POST -H "Accept: application/vnd.github+json" '
+            f'-H "Authorization: Bearer {GITHUB_TOKEN}" '
+            f'-H "X-GitHub-Api-Version: 2022-11-28" '
+            f'https://api.github.com/user/repos -d \'{{"name":"{repo_name}","private":false}}\'',
+            f"git remote add origin https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git",
+            "git push -u origin main",
+            f'curl -L -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer {GITHUB_TOKEN}" '
+            f'-H "X-GitHub-Api-Version: 2022-11-28" '
+            f'https://api.github.com/repos/{GITHUB_USERNAME}/{repo_name}/pages '
+            "-d '{\"source\":{\"branch\":\"main\",\"path\":\"/\"}}'"
             ]
+
         else:
             print("--- ROUND 2: Updating existing repo ---")
             subprocess.run(f"gh repo clone {repo_url} {local_path}", shell=True, check=True)
