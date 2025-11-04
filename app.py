@@ -124,6 +124,7 @@ def background_task(task_data):
             shutil.rmtree(local_path)
         os.makedirs(local_path)
 
+        # --- ROUND 1: CREATE NEW REPO ---
         if task_data.get("round") == 1:
             print("--- ROUND 1: Creating new repo ---")
             html_code = generate_llm_code(task_data.get("brief"))
@@ -147,6 +148,7 @@ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 """
 
+            # Write files
             with open(os.path.join(local_path, "index.html"), "w", encoding="utf-8") as f:
                 f.write(html_code)
             with open(os.path.join(local_path, "README.md"), "w", encoding="utf-8") as f:
@@ -157,7 +159,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
             for attachment in task_data.get("attachments", []):
                 write_attachment(local_path, attachment)
 
-            # --- Use GitHub REST API (no gh CLI) ---
+            # Create repo via GitHub REST API
             create_repo_cmd = (
                 f'curl -L -X POST -H "Accept: application/vnd.github+json" '
                 f'-H "Authorization: Bearer {GITHUB_TOKEN}" '
@@ -171,7 +173,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
                 "git config --global init.defaultBranch main",
                 "git init",
                 "git add .",
-                'git commit -m \"feat: Initial commit for Round 1\"',
+                'git commit -m "feat: Initial commit for Round 1"',
                 create_repo_cmd,
                 f"git remote add origin https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git",
                 "git push -u origin main",
@@ -182,37 +184,37 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
                 "-d '{\"source\":{\"branch\":\"main\",\"path\":\"/\"}}'"
             ]
 
+        # --- ROUND 2: UPDATE EXISTING REPO ---
         else:
             print("--- ROUND 2: Updating existing repo ---")
             subprocess.run(f"git clone {repo_url} {local_path}", shell=True, check=True)
 
-        
-            # 🔐 Re-add authenticated remote (fixes push error)
-            GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
-            GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+            # Configure Git identity (Render-safe)
+            subprocess.run('git config --global user.name "24f2001869"', shell=True, check=True)
+            subprocess.run('git config --global user.email "24f2001869@ds.study.iitm.ac.in"', shell=True, check=True)
+
+            # Re-add authenticated remote
             subprocess.run(
                 f"git remote set-url origin https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git",
                 shell=True,
                 check=True,
                 cwd=local_path
             )
-        
+
+            # Update index.html via Gemini
             with open(os.path.join(local_path, "index.html"), "r", encoding="utf-8") as f:
                 old_code = f.read()
             updated = generate_llm_code(task_data.get("brief"), existing_code=old_code)
             with open(os.path.join(local_path, "index.html"), "w", encoding="utf-8") as f:
                 f.write(updated)
-        
+
             commands = [
                 "git add .",
                 f'git commit -m "feat: Round {task_data.get("round")} update"',
                 "git push"
             ]
 
-    
-
-
-
+        # Execute commands
         for cmd in commands:
             print(f"🔧 {cmd}")
             subprocess.run(cmd, shell=True, check=True, cwd=local_path)
