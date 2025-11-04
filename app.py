@@ -184,7 +184,18 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
         else:
             print("--- ROUND 2: Updating existing repo ---")
-            subprocess.run(f"git clone {repo_url} {local_path}", shell=True, check=True)
+            subprocess.run(f"gh repo clone {repo_url} {local_path}", shell=True, check=True)
+        
+            # 🔐 Re-add authenticated remote (fixes push error)
+            GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
+            GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+            subprocess.run(
+                f"git remote set-url origin https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git",
+                shell=True,
+                check=True,
+                cwd=local_path
+            )
+        
             with open(os.path.join(local_path, "index.html"), "r", encoding="utf-8") as f:
                 old_code = f.read()
             updated = generate_llm_code(task_data.get("brief"), existing_code=old_code)
@@ -192,9 +203,10 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
                 f.write(updated)
             commands = [
                 "git add .",
-                f'git commit -m \"feat: Round {task_data.get("round")} update\"',
+                f'git commit -m \"feat: Round {task_data.get(\"round\")} update\"'",
                 "git push"
             ]
+
 
         for cmd in commands:
             print(f"🔧 {cmd}")
