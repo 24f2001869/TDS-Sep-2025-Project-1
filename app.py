@@ -240,14 +240,19 @@ def home():
 
 
 @app.route('/api-endpoint', methods=['GET', 'POST', 'HEAD'])
-def handle_request():
-    # Allow GET/HEAD for uptime monitoring
-    if request.method in ['GET', 'HEAD']:
-        return jsonify({"status": "alive"}), 200
 
+def handle_request():
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
+
     data = request.json
+    secret = data.get("secret")
+
+    # ✅ Security check: validate secret
+    if secret != os.getenv("MY_SECRET"):
+        print("❌ Invalid secret provided.")
+        return jsonify({"error": "Invalid secret"}), 403
+
     print("🚀 Task request received.")
     threading.Thread(target=background_task, args=(data,)).start()
     return jsonify({"usercode": data.get("email")}), 200
